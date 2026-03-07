@@ -1,0 +1,85 @@
+import { useState, useEffect } from 'react';
+import { Clock, Users, BarChart3, Settings } from 'lucide-react';
+import TaskTracker from './components/TaskTracker';
+import Admin from './components/Admin';
+import Summary from './components/Summary';
+import { initializeFirebase } from './lib/firebase';
+
+function App() {
+  const [activeTab, setActiveTab] = useState<'tracker' | 'admin' | 'summary'>('tracker');
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  useEffect(() => {
+    initializeFirebase();
+    setIsInitialized(true);
+  }, []);
+
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
+        <div className="animate-pulse">
+          <Clock className="w-12 h-12 text-blue-400" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      <header className="bg-gradient-to-r from-slate-800 to-slate-900 border-b border-slate-700 shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex items-center gap-3">
+            <Clock className="w-8 h-8 text-blue-400" />
+            <h1 className="text-3xl font-bold text-white">Sortation Plan</h1>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-8">
+          <button
+            onClick={() => setActiveTab('tracker')}
+            className={`p-4 rounded-lg font-semibold transition-all duration-200 flex items-center gap-2 ${
+              activeTab === 'tracker'
+                ? 'bg-blue-600 text-white shadow-lg scale-105'
+                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+            }`}
+          >
+            <Clock className="w-5 h-5" />
+            Track Time
+          </button>
+          <button
+            onClick={() => setActiveTab('admin')}
+            className={`p-4 rounded-lg font-semibold transition-all duration-200 flex items-center gap-2 ${
+              activeTab === 'admin'
+                ? 'bg-blue-600 text-white shadow-lg scale-105'
+                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+            }`}
+          >
+            <Settings className="w-5 h-5" />
+            Admin
+          </button>
+          <button
+            onClick={() => setActiveTab('summary')}
+            className={`p-4 rounded-lg font-semibold transition-all duration-200 flex items-center gap-2 ${
+              activeTab === 'summary'
+                ? 'bg-blue-600 text-white shadow-lg scale-105'
+                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+            }`}
+          >
+            <BarChart3 className="w-5 h-5" />
+            Summary
+          </button>
+        </div>
+
+        <div className="bg-slate-800 rounded-xl shadow-2xl border border-slate-700 min-h-screen">
+          {activeTab === 'tracker' && <TaskTracker />}
+          {activeTab === 'admin' && <Admin />}
+          {activeTab === 'summary' && <Summary />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default App;
