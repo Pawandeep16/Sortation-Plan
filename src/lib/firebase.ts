@@ -24,7 +24,8 @@ const firebaseConfig = {
 
 if (
   !firebaseConfig.apiKey ||
-  !firebaseConfig.projectId
+  !firebaseConfig.projectId ||
+  !firebaseConfig.databaseURL
 ) {
   throw new Error('Missing Firebase environment variables');
 }
@@ -146,11 +147,12 @@ export const firebaseService = {
   async addTimeEntry(
     employeeId: string,
     taskId: string,
-    date: string
+    date: string,
+    shiftId?: string
   ) {
     const id = Date.now().toString();
     const startTime = new Date().toISOString();
-    await set(ref(db, `time_entries/${id}`), {
+    const entryData: any = {
       employee_id: employeeId,
       task_id: taskId,
       start_time: startTime,
@@ -159,7 +161,11 @@ export const firebaseService = {
       date,
       created_at: startTime,
       updated_at: startTime,
-    });
+    };
+    if (shiftId) {
+      entryData.shift_id = shiftId;
+    }
+    await set(ref(db, `time_entries/${id}`), entryData);
     return {
       id,
       employee_id: employeeId,
@@ -168,6 +174,7 @@ export const firebaseService = {
       end_time: null,
       duration_minutes: null,
       date,
+      shift_id: shiftId,
     };
   },
 
@@ -198,6 +205,191 @@ export const firebaseService = {
         const entryDate = e.date;
         return entryDate >= dateFrom && entryDate <= dateTo && e.duration_minutes;
       });
+    }
+    return [];
+  },
+
+  async getShifts() {
+    const snapshot = await get(ref(db, 'shifts'));
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      return Object.entries(data).map(([id, value]: [string, any]) => ({
+        id,
+        ...value,
+      }));
+    }
+    return [];
+  },
+
+  async addShift(name: string, startTime: string, endTime: string) {
+    const id = Date.now().toString();
+    await set(ref(db, `shifts/${id}`), {
+      name,
+      start_time: startTime,
+      end_time: endTime,
+      created_at: new Date().toISOString(),
+    });
+    return { id, name, start_time: startTime, end_time: endTime };
+  },
+
+  async updateShift(id: string, updates: any) {
+    await update(ref(db, `shifts/${id}`), {
+      ...updates,
+      updated_at: new Date().toISOString(),
+    });
+  },
+
+  async deleteShift(id: string) {
+    await remove(ref(db, `shifts/${id}`));
+  },
+
+  async getEmployeeShifts() {
+    const snapshot = await get(ref(db, 'employee_shifts'));
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      return Object.entries(data).map(([id, value]: [string, any]) => ({
+        id,
+        ...value,
+      }));
+    }
+    return [];
+  },
+
+  async addEmployeeShift(employeeId: string, shiftId: string, assignedDate: string) {
+    const id = Date.now().toString();
+    await set(ref(db, `employee_shifts/${id}`), {
+      employee_id: employeeId,
+      shift_id: shiftId,
+      assigned_date: assignedDate,
+      created_at: new Date().toISOString(),
+    });
+    return { id, employee_id: employeeId, shift_id: shiftId, assigned_date: assignedDate };
+  },
+
+  async deleteEmployeeShift(id: string) {
+    await remove(ref(db, `employee_shifts/${id}`));
+  },
+
+  async getEmployeeShiftForDate(employeeId: string, date: string) {
+    const snapshot = await get(ref(db, 'employee_shifts'));
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      const employeeShift = Object.entries(data).find(([, value]: [string, any]) =>
+        value.employee_id === employeeId && value.assigned_date === date
+      );
+      if (employeeShift) {
+        return {
+          id: employeeShift[0],
+          ...employeeShift[1],
+        };
+      }
+    }
+    return null;
+  },
+
+  async deleteTimeEntry(id: string) {
+    await remove(ref(db, `time_entries/${id}`));
+  },
+
+  async hasActiveBreak(employeeId: string, date: string): Promise<boolean> {
+    const snapshot = await get(ref(db, 'breaks'));
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      const breaks = Object.values(data) as any[];
+
+      for (const brk of breaks) {
+        const entry = await get(ref(db, `time_entries/${brk.entry_id}`));
+        if (entry.exists()) {
+          const entryData = entry.val();
+          if (
+            entryData.employee_id === employeeId &&
+            entryData.date === date &&
+            brk.end_time === null
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  },
+
+  async addBreak(
+    entryId: string,
+    breakType: 'paid_15' | 'unpaid_30',
+    startTime: string
+  ) {
+    const id = Date.now().toString();
+    await set(ref(db, `breaks/${id}`), {
+      entry_id: entryId,
+      type: breakType,
+      start_time: startTime,
+      end_time: null,
+      duration_minutes: null,
+      created_at: startTime,
+    });
+    return {
+      id,
+      entry_id: entryId,
+      type: breakType,
+      start_time: startTime,
+      end_time: null,
+      duration_minutes: null,
+    };
+  },
+
+  async updateBreak(
+    id: string,
+    updates: Partial<{
+      end_time: string;
+      duration_minutes: number;
+    }>
+  ) {
+    await update(ref(db, `breaks/${id}`), {
+      ...updates,
+      updated_at: new Date().toISOString(),
+    });
+  },
+
+  async deleteBreak(id: string) {
+    await remove(ref(db, `breaks/${id}`));
+  },
+
+  async getBreaksByTimeEntry(entryId: string) {
+    const snapshot = await get(ref(db, 'breaks'));
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      const breaks = Object.entries(data)
+        .filter(([, value]: [string, any]) => value.entry_id === entryId)
+        .map(([id, value]: [string, any]) => ({
+          id,
+          ...value,
+        }));
+      return breaks;
+    }
+    return [];
+  },
+
+  async getBreaksByEmployeeAndDate(employeeId: string, date: string) {
+    const entries = await this.getTimeEntries(date);
+    const employeeEntries = entries.filter((e: any) => e.employee_id === employeeId);
+
+    const breaks: any[] = [];
+    for (const entry of employeeEntries) {
+      const entryBreaks = await this.getBreaksByTimeEntry(entry.id);
+      breaks.push(...entryBreaks);
+    }
+    return breaks;
+  },
+
+  async getAllBreaks() {
+    const snapshot = await get(ref(db, 'breaks'));
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      return Object.entries(data).map(([id, value]: [string, any]) => ({
+        id,
+        ...value,
+      }));
     }
     return [];
   },

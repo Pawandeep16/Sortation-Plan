@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, CreditCard as Edit2, Check, X } from 'lucide-react';
+import { Plus, Trash2, CreditCard as Edit2, Check, X, AlertTriangle } from 'lucide-react';
 import { firebaseService } from '../lib/firebase';
+import { getToday } from '../lib/utils';
 
 interface Employee {
   id: string;
@@ -21,12 +22,28 @@ interface Task {
   department_id: string;
 }
 
+interface Shift {
+  id: string;
+  name: string;
+  start_time: string;
+  end_time: string;
+}
+
+interface EmployeeShift {
+  id: string;
+  employee_id: string;
+  shift_id: string;
+  assigned_date: string;
+}
+
 export default function Admin() {
-  const [activeSection, setActiveSection] = useState<'employees' | 'departments' | 'tasks'>('employees');
+  const [activeSection, setActiveSection] = useState<'employees' | 'departments' | 'tasks' | 'shifts' | 'employee-shifts' | 'cleanup'>('employees');
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [employeeShifts, setEmployeeShifts] = useState<EmployeeShift[]>([]);
 
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
@@ -34,6 +51,7 @@ export default function Admin() {
     name: '',
     employment_type: 'regular' as const,
     department_id: '',
+    shift_ids: [] as string[],
   });
 
   const [showDepartmentForm, setShowDepartmentForm] = useState(false);
@@ -50,20 +68,45 @@ export default function Admin() {
     department_id: '',
   });
 
+  const [showShiftForm, setShowShiftForm] = useState(false);
+  const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
+  const [shiftForm, setShiftForm] = useState({
+    name: '',
+    start_time: '09:00',
+    end_time: '17:00',
+  });
+
+  const [showEmployeeShiftForm, setShowEmployeeShiftForm] = useState(false);
+  const [employeeShiftForm, setEmployeeShiftForm] = useState({
+    employee_id: '',
+    shift_id: '',
+    assigned_date: new Date().toISOString().split('T')[0],
+  });
+
+  const [cleanupDateFrom, setCleanupDateFrom] = useState(getToday());
+  const [cleanupDateTo, setCleanupDateTo] = useState(getToday());
+  const [showCleanupConfirm, setShowCleanupConfirm] = useState(false);
+  const [cleanupPasscode, setCleanupPasscode] = useState('');
+  const [passcodeError, setPasscodeError] = useState('');
+
   useEffect(() => {
     fetchData();
   }, []);
 
   const fetchData = async () => {
-    const [emps, depts, tsks] = await Promise.all([
+    const [emps, depts, tsks, shfts, empShfts] = await Promise.all([
       firebaseService.getEmployees(),
       firebaseService.getDepartments(),
       firebaseService.getTasks(),
+      firebaseService.getShifts(),
+      firebaseService.getEmployeeShifts(),
     ]);
 
     setEmployees(emps);
     setDepartments(depts);
     setTasks(tsks);
+    setShifts(shfts);
+    setEmployeeShifts(empShfts);
   };
 
   const handleAddEmployee = async () => {
@@ -89,6 +132,16 @@ export default function Admin() {
         employeeForm.department_id
       );
       setEmployees([...employees, emp]);
+
+      const assignedDate = new Date().toISOString().split('T')[0];
+      for (const shiftId of employeeForm.shift_ids) {
+        const empShift = await firebaseService.addEmployeeShift(
+          emp.id,
+          shiftId,
+          assignedDate
+        );
+        setEmployeeShifts([...employeeShifts, empShift]);
+      }
     }
     resetEmployeeForm();
   };
@@ -101,7 +154,7 @@ export default function Admin() {
   };
 
   const resetEmployeeForm = () => {
-    setEmployeeForm({ name: '', employment_type: 'regular', department_id: '' });
+    setEmployeeForm({ name: '', employment_type: 'regular', department_id: '', shift_ids: [] });
     setEditingEmployeeId(null);
     setShowEmployeeForm(false);
   };
@@ -110,13 +163,8 @@ export default function Admin() {
     if (!departmentForm.name.trim()) return;
 
     if (editingDepartmentId) {
-      // Update department
-      const updatedDept = {
-        ...departmentForm,
-        id: editingDepartmentId,
-      };
       setDepartments(
-        departments.map(d => (d.id === editingDepartmentId ? updatedDept : d))
+        departments.map(d => (d.id === editingDepartmentId ? { ...d, ...departmentForm } : d))
       );
     } else {
       const dept = await firebaseService.addDepartment(
@@ -130,7 +178,6 @@ export default function Admin() {
 
   const handleDeleteDepartment = async (id: string) => {
     if (confirm('Are you sure? This will affect all related tasks.')) {
-      // Note: In a real app, you'd handle cascading deletes
       setDepartments(departments.filter(d => d.id !== id));
       setTasks(tasks.filter(t => t.department_id !== id));
     }
@@ -174,6 +221,96 @@ export default function Admin() {
     setShowTaskForm(false);
   };
 
+  const handleAddShift = async () => {
+    if (!shiftForm.name.trim()) return;
+
+    if (editingShiftId) {
+      await firebaseService.updateShift(editingShiftId, shiftForm);
+      setShifts(
+        shifts.map(s =>
+          s.id === editingShiftId
+            ? { ...s, ...shiftForm }
+            : s
+        )
+      );
+    } else {
+      const shift = await firebaseService.addShift(
+        shiftForm.name,
+        shiftForm.start_time,
+        shiftForm.end_time
+      );
+      setShifts([...shifts, shift]);
+    }
+    resetShiftForm();
+  };
+
+  const handleDeleteShift = async (id: string) => {
+    if (confirm('Are you sure you want to delete this shift?')) {
+      await firebaseService.deleteShift(id);
+      setShifts(shifts.filter(s => s.id !== id));
+    }
+  };
+
+  const resetShiftForm = () => {
+    setShiftForm({ name: '', start_time: '09:00', end_time: '17:00' });
+    setEditingShiftId(null);
+    setShowShiftForm(false);
+  };
+
+  const handleAddEmployeeShift = async () => {
+    if (!employeeShiftForm.employee_id || !employeeShiftForm.shift_id) return;
+
+    const empShift = await firebaseService.addEmployeeShift(
+      employeeShiftForm.employee_id,
+      employeeShiftForm.shift_id,
+      employeeShiftForm.assigned_date
+    );
+    setEmployeeShifts([...employeeShifts, empShift]);
+    resetEmployeeShiftForm();
+  };
+
+  const handleDeleteEmployeeShift = async (id: string) => {
+    if (confirm('Remove this shift assignment?')) {
+      await firebaseService.deleteEmployeeShift(id);
+      setEmployeeShifts(employeeShifts.filter(es => es.id !== id));
+    }
+  };
+
+  const resetEmployeeShiftForm = () => {
+    setEmployeeShiftForm({
+      employee_id: '',
+      shift_id: '',
+      assigned_date: new Date().toISOString().split('T')[0],
+    });
+    setShowEmployeeShiftForm(false);
+  };
+
+  const handleCleanupDatabase = async () => {
+    const correctPasscode = import.meta.env.VITE_CLEANUP_PASSCODE || 'sortation2024';
+
+    if (cleanupPasscode !== correctPasscode) {
+      setPasscodeError('Invalid passcode. Please try again.');
+      return;
+    }
+
+    try {
+      const allEntries = await firebaseService.getTimeEntriesByDateRange(cleanupDateFrom, cleanupDateTo);
+      const deletedCount = allEntries.length;
+
+      await Promise.all(
+        allEntries.map(entry => firebaseService.deleteTimeEntry(entry.id))
+      );
+
+      setShowCleanupConfirm(false);
+      setCleanupPasscode('');
+      setPasscodeError('');
+      alert(`Successfully deleted ${deletedCount} time entries from ${cleanupDateFrom} to ${cleanupDateTo}`);
+      fetchData();
+    } catch (error) {
+      alert('Error cleaning database: ' + error);
+    }
+  };
+
   const getEmploymentTypeBadge = (type: string) => {
     return type === 'regular' ? (
       <span className="px-3 py-1 bg-green-600 text-white text-xs font-semibold rounded-full">
@@ -188,7 +325,7 @@ export default function Admin() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
         <button
           onClick={() => setActiveSection('employees')}
           className={`p-3 rounded-lg font-semibold transition-all ${
@@ -219,6 +356,36 @@ export default function Admin() {
         >
           Tasks
         </button>
+        <button
+          onClick={() => setActiveSection('shifts')}
+          className={`p-3 rounded-lg font-semibold transition-all ${
+            activeSection === 'shifts'
+              ? 'bg-blue-600 text-white'
+              : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+          }`}
+        >
+          Shifts
+        </button>
+        <button
+          onClick={() => setActiveSection('employee-shifts')}
+          className={`p-3 rounded-lg font-semibold transition-all ${
+            activeSection === 'employee-shifts'
+              ? 'bg-blue-600 text-white'
+              : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+          }`}
+        >
+          Employee Shifts
+        </button>
+        <button
+          onClick={() => setActiveSection('cleanup')}
+          className={`p-3 rounded-lg font-semibold transition-all ${
+            activeSection === 'cleanup'
+              ? 'bg-red-600 text-white'
+              : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+          }`}
+        >
+          Cleanup
+        </button>
       </div>
 
       {activeSection === 'employees' && (
@@ -241,7 +408,7 @@ export default function Admin() {
               <h3 className="text-lg font-bold text-white mb-4">
                 {editingEmployeeId ? 'Edit Employee' : 'Add New Employee'}
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                 <input
                   type="text"
                   placeholder="Employee name"
@@ -275,6 +442,43 @@ export default function Admin() {
                   ))}
                 </select>
               </div>
+              {!editingEmployeeId && (
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold text-slate-300 mb-2">
+                    Assign Shifts (Optional)
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {shifts.map(shift => (
+                      <label key={shift.id} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={employeeForm.shift_ids.includes(shift.id)}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setEmployeeForm({
+                                ...employeeForm,
+                                shift_ids: [...employeeForm.shift_ids, shift.id],
+                              });
+                            } else {
+                              setEmployeeForm({
+                                ...employeeForm,
+                                shift_ids: employeeForm.shift_ids.filter(id => id !== shift.id),
+                              });
+                            }
+                          }}
+                          className="w-4 h-4 cursor-pointer"
+                        />
+                        <span className="text-sm text-slate-300">
+                          {shift.name} ({shift.start_time} - {shift.end_time})
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {shifts.length === 0 && (
+                    <p className="text-sm text-slate-400">No shifts available. Create shifts first.</p>
+                  )}
+                </div>
+              )}
               <div className="flex gap-2 mt-4">
                 <button
                   onClick={handleAddEmployee}
@@ -581,6 +785,332 @@ export default function Admin() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'shifts' && (
+        <div>
+          <div className="mb-6">
+            <button
+              onClick={() => {
+                resetShiftForm();
+                setShowShiftForm(true);
+              }}
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Add Shift
+            </button>
+          </div>
+
+          {showShiftForm && (
+            <div className="bg-slate-700 rounded-lg p-6 mb-6">
+              <h3 className="text-lg font-bold text-white mb-4">
+                {editingShiftId ? 'Edit Shift' : 'Add New Shift'}
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <input
+                  type="text"
+                  placeholder="Shift name (e.g., Morning)"
+                  value={shiftForm.name}
+                  onChange={e => setShiftForm({ ...shiftForm, name: e.target.value })}
+                  className="bg-slate-600 border border-slate-500 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                />
+                <input
+                  type="time"
+                  value={shiftForm.start_time}
+                  onChange={e => setShiftForm({ ...shiftForm, start_time: e.target.value })}
+                  className="bg-slate-600 border border-slate-500 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                />
+                <input
+                  type="time"
+                  value={shiftForm.end_time}
+                  onChange={e => setShiftForm({ ...shiftForm, end_time: e.target.value })}
+                  className="bg-slate-600 border border-slate-500 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={handleAddShift}
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+                >
+                  <Check className="w-5 h-5" />
+                  {editingShiftId ? 'Update' : 'Add'}
+                </button>
+                <button
+                  onClick={resetShiftForm}
+                  className="flex items-center gap-2 bg-slate-600 hover:bg-slate-500 text-white px-6 py-2 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-700">
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Name</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Start Time</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">End Time</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shifts.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-4 text-center text-slate-400">
+                      No shifts yet
+                    </td>
+                  </tr>
+                ) : (
+                  shifts.map(shift => (
+                    <tr key={shift.id} className="border-b border-slate-700 hover:bg-slate-700">
+                      <td className="px-4 py-3 text-sm text-slate-100 font-medium">{shift.name}</td>
+                      <td className="px-4 py-3 text-sm text-slate-300">{shift.start_time}</td>
+                      <td className="px-4 py-3 text-sm text-slate-300">{shift.end_time}</td>
+                      <td className="px-4 py-3 text-sm flex gap-2">
+                        <button
+                          onClick={() => {
+                            setShiftForm({
+                              name: shift.name,
+                              start_time: shift.start_time,
+                              end_time: shift.end_time,
+                            });
+                            setEditingShiftId(shift.id);
+                            setShowShiftForm(true);
+                          }}
+                          className="text-blue-400 hover:text-blue-300 transition-colors"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteShift(shift.id)}
+                          className="text-red-400 hover:text-red-300 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'employee-shifts' && (
+        <div>
+          <div className="mb-6">
+            <button
+              onClick={() => {
+                resetEmployeeShiftForm();
+                setShowEmployeeShiftForm(true);
+              }}
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Assign Shift
+            </button>
+          </div>
+
+          {showEmployeeShiftForm && (
+            <div className="bg-slate-700 rounded-lg p-6 mb-6">
+              <h3 className="text-lg font-bold text-white mb-4">Assign Shift to Employee</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <select
+                  value={employeeShiftForm.employee_id}
+                  onChange={e => setEmployeeShiftForm({ ...employeeShiftForm, employee_id: e.target.value })}
+                  className="bg-slate-600 border border-slate-500 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Select Employee</option>
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={employeeShiftForm.shift_id}
+                  onChange={e => setEmployeeShiftForm({ ...employeeShiftForm, shift_id: e.target.value })}
+                  className="bg-slate-600 border border-slate-500 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Select Shift</option>
+                  {shifts.map(shift => (
+                    <option key={shift.id} value={shift.id}>
+                      {shift.name} ({shift.start_time} - {shift.end_time})
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="date"
+                  value={employeeShiftForm.assigned_date}
+                  onChange={e => setEmployeeShiftForm({ ...employeeShiftForm, assigned_date: e.target.value })}
+                  className="bg-slate-600 border border-slate-500 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={handleAddEmployeeShift}
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+                >
+                  <Check className="w-5 h-5" />
+                  Assign
+                </button>
+                <button
+                  onClick={resetEmployeeShiftForm}
+                  className="flex items-center gap-2 bg-slate-600 hover:bg-slate-500 text-white px-6 py-2 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-700">
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Employee</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Shift</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Date</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {employeeShifts.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-4 text-center text-slate-400">
+                      No shift assignments yet
+                    </td>
+                  </tr>
+                ) : (
+                  employeeShifts.map(es => {
+                    const emp = employees.find(e => e.id === es.employee_id);
+                    const shift = shifts.find(s => s.id === es.shift_id);
+                    return (
+                      <tr key={es.id} className="border-b border-slate-700 hover:bg-slate-700">
+                        <td className="px-4 py-3 text-sm text-slate-100 font-medium">{emp?.name}</td>
+                        <td className="px-4 py-3 text-sm text-slate-300">
+                          {shift?.name} ({shift?.start_time} - {shift?.end_time})
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-300">{es.assigned_date}</td>
+                        <td className="px-4 py-3 text-sm flex gap-2">
+                          <button
+                            onClick={() => handleDeleteEmployeeShift(es.id)}
+                            className="text-red-400 hover:text-red-300 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'cleanup' && (
+        <div>
+          <div className="bg-red-900 border border-red-700 rounded-lg p-6 mb-6">
+            <div className="flex gap-3 mb-4">
+              <AlertTriangle className="w-6 h-6 text-red-400 flex-shrink-0" />
+              <div>
+                <h3 className="text-lg font-bold text-white mb-2">Database Cleanup</h3>
+                <p className="text-red-200 text-sm mb-4">
+                  This will permanently delete all time entries within the selected date range. This action cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-red-800 rounded-lg p-4 mb-6">
+              <h4 className="text-white font-semibold mb-4">Select Date Range</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-red-200 mb-2">From Date</label>
+                  <input
+                    type="date"
+                    value={cleanupDateFrom}
+                    onChange={e => setCleanupDateFrom(e.target.value)}
+                    className="w-full bg-red-700 border border-red-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-red-200 mb-2">To Date</label>
+                  <input
+                    type="date"
+                    value={cleanupDateTo}
+                    onChange={e => setCleanupDateTo(e.target.value)}
+                    className="w-full bg-red-700 border border-red-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowCleanupConfirm(true)}
+                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
+              >
+                <Trash2 className="w-5 h-5" />
+                Delete Data in Range
+              </button>
+            </div>
+
+            {showCleanupConfirm && (
+              <div className="bg-red-950 border border-red-700 rounded-lg p-4">
+                <p className="text-white mb-4 font-semibold">
+                  Are you sure you want to delete all time entries from {cleanupDateFrom} to {cleanupDateTo}?
+                </p>
+                <p className="text-red-200 text-sm mb-4">This cannot be undone.</p>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-red-200 mb-2">
+                    Enter Passcode to Confirm
+                  </label>
+                  <input
+                    type="password"
+                    value={cleanupPasscode}
+                    onChange={e => {
+                      setCleanupPasscode(e.target.value);
+                      setPasscodeError('');
+                    }}
+                    placeholder="Enter passcode"
+                    className="w-full bg-red-700 border border-red-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                  />
+                  {passcodeError && (
+                    <p className="text-red-300 text-sm mt-2">{passcodeError}</p>
+                  )}
+                </div>
+
+                <div className="flex gap-4">
+                  <button
+                    onClick={handleCleanupDatabase}
+                    className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
+                  >
+                    <Check className="w-5 h-5" />
+                    Yes, Delete All
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowCleanupConfirm(false);
+                      setCleanupPasscode('');
+                      setPasscodeError('');
+                    }}
+                    className="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
