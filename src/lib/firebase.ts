@@ -1,16 +1,13 @@
 import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, get, set, update, remove } from 'firebase/database';
 import {
-  getDatabase,
-  ref,
-  set,
-  get,
-  query,
-  orderByChild,
-  onValue,
-  update,
-  remove,
-  DatabaseReference,
-} from 'firebase/database';
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  User,
+} from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -32,6 +29,7 @@ if (
 
 const app = initializeApp(firebaseConfig);
 export const db = getDatabase(app);
+export const auth = getAuth(app);
 
 export const initializeFirebase = () => {
   return db;
@@ -396,3 +394,40 @@ export const firebaseService = {
 };
 
 export type Database = any;
+
+export const authService = {
+  async signUp(email: string, password: string) {
+    try {
+      const result = await createUserWithEmailAndPassword(auth, email, password);
+      return { user: result.user, error: null };
+    } catch (error: any) {
+      return { user: null, error: error.message };
+    }
+  },
+
+  async signIn(email: string, password: string) {
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      return { user: result.user, error: null };
+    } catch (error: any) {
+      return { user: null, error: error.message };
+    }
+  },
+
+  async logout() {
+    try {
+      await signOut(auth);
+      return { error: null };
+    } catch (error: any) {
+      return { error: error.message };
+    }
+  },
+
+  onAuthStateChanged(callback: (user: User | null) => void) {
+    return onAuthStateChanged(auth, callback);
+  },
+
+  getCurrentUser() {
+    return auth.currentUser;
+  },
+};

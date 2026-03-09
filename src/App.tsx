@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Clock, BarChart3, Settings } from 'lucide-react';
+import { Clock, BarChart3, Settings, LogOut } from 'lucide-react';
 import SortationPlan from './components/TaskTracker';
 import Admin from './components/Admin';
 import Summary from './components/Summary';
-import { initializeFirebase } from './lib/firebase';
+import Login from './components/Login';
+import { initializeFirebase, authService } from './lib/firebase';
 import { BreakProvider } from './context/BreakContext';
 
 function App() {
@@ -11,6 +12,7 @@ function App() {
     return (localStorage.getItem('activeTab') as 'tracker' | 'admin' | 'summary') || 'tracker';
   });
   const [isInitialized, setIsInitialized] = useState(false);
+  const [user, setUser] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -18,8 +20,17 @@ function App() {
 
   useEffect(() => {
     initializeFirebase();
-    setIsInitialized(true);
+    const unsubscribe = authService.onAuthStateChanged((currentUser) => {
+      setUser(!!currentUser);
+      setIsInitialized(true);
+    });
+    return () => unsubscribe();
   }, []);
+
+  const handleLogout = async () => {
+    await authService.logout();
+    setUser(false);
+  };
 
   if (!isInitialized) {
     return (
@@ -31,14 +42,27 @@ function App() {
     );
   }
 
+  if (!user) {
+    return <Login onLoginSuccess={() => setUser(true)} />;
+  }
+
   return (
     <BreakProvider>
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
         <header className="bg-gradient-to-r from-slate-800 to-slate-900 border-b border-slate-700 shadow-lg">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-            <div className="flex items-center gap-3">
-              <Clock className="w-8 h-8 text-blue-400" />
-              <h1 className="text-3xl font-bold text-white">Sortation Plan</h1>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Clock className="w-8 h-8 text-blue-400" />
+                <h1 className="text-3xl font-bold text-white">Sortation Plan</h1>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white px-4 py-2 rounded-lg transition-all"
+              >
+                <LogOut className="w-5 h-5" />
+                <span>Logout</span>
+              </button>
             </div>
           </div>
         </header>
