@@ -80,7 +80,8 @@ export default function Admin() {
   const [employeeShiftForm, setEmployeeShiftForm] = useState({
     employee_id: '',
     shift_id: '',
-    assigned_date: new Date().toISOString().split('T')[0],
+    start_date: new Date().toISOString().split('T')[0],
+    end_date: new Date().toISOString().split('T')[0],
   });
 
   const [cleanupDateFrom, setCleanupDateFrom] = useState(getToday());
@@ -258,14 +259,29 @@ export default function Admin() {
   };
 
   const handleAddEmployeeShift = async () => {
-    if (!employeeShiftForm.employee_id || !employeeShiftForm.shift_id) return;
+    if (!employeeShiftForm.employee_id || !employeeShiftForm.shift_id || !employeeShiftForm.start_date || !employeeShiftForm.end_date) return;
 
-    const empShift = await firebaseService.addEmployeeShift(
-      employeeShiftForm.employee_id,
-      employeeShiftForm.shift_id,
-      employeeShiftForm.assigned_date
-    );
-    setEmployeeShifts([...employeeShifts, empShift]);
+    if (new Date(employeeShiftForm.start_date) > new Date(employeeShiftForm.end_date)) {
+      alert('End date must be after start date');
+      return;
+    }
+
+    const currentDate = new Date(employeeShiftForm.start_date);
+    const endDate = new Date(employeeShiftForm.end_date);
+    const newShifts: any[] = [];
+
+    while (currentDate <= endDate) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      const empShift = await firebaseService.addEmployeeShift(
+        employeeShiftForm.employee_id,
+        employeeShiftForm.shift_id,
+        dateStr
+      );
+      newShifts.push(empShift);
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    setEmployeeShifts([...employeeShifts, ...newShifts]);
     resetEmployeeShiftForm();
   };
 
@@ -280,7 +296,8 @@ export default function Admin() {
     setEmployeeShiftForm({
       employee_id: '',
       shift_id: '',
-      assigned_date: new Date().toISOString().split('T')[0],
+      start_date: new Date().toISOString().split('T')[0],
+      end_date: new Date().toISOString().split('T')[0],
     });
     setShowEmployeeShiftForm(false);
   };
@@ -921,7 +938,7 @@ export default function Admin() {
           {showEmployeeShiftForm && (
             <div className="bg-slate-700 rounded-lg p-6 mb-6">
               <h3 className="text-lg font-bold text-white mb-4">Assign Shift to Employee</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <select
                   value={employeeShiftForm.employee_id}
                   onChange={e => setEmployeeShiftForm({ ...employeeShiftForm, employee_id: e.target.value })}
@@ -946,12 +963,26 @@ export default function Admin() {
                     </option>
                   ))}
                 </select>
-                <input
-                  type="date"
-                  value={employeeShiftForm.assigned_date}
-                  onChange={e => setEmployeeShiftForm({ ...employeeShiftForm, assigned_date: e.target.value })}
-                  className="bg-slate-600 border border-slate-500 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
-                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Start Date</label>
+                  <input
+                    type="date"
+                    value={employeeShiftForm.start_date}
+                    onChange={e => setEmployeeShiftForm({ ...employeeShiftForm, start_date: e.target.value })}
+                    className="w-full bg-slate-600 border border-slate-500 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">End Date</label>
+                  <input
+                    type="date"
+                    value={employeeShiftForm.end_date}
+                    onChange={e => setEmployeeShiftForm({ ...employeeShiftForm, end_date: e.target.value })}
+                    className="w-full bg-slate-600 border border-slate-500 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
               </div>
               <div className="flex gap-2 mt-4">
                 <button
@@ -959,7 +990,7 @@ export default function Admin() {
                   className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
                 >
                   <Check className="w-5 h-5" />
-                  Assign
+                  Assign for Date Range
                 </button>
                 <button
                   onClick={resetEmployeeShiftForm}
@@ -978,39 +1009,65 @@ export default function Admin() {
                 <tr className="border-b border-slate-700">
                   <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Employee</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Shift</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Date</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">From Date</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">To Date</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {employeeShifts.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-4 text-center text-slate-400">
+                    <td colSpan={5} className="px-4 py-4 text-center text-slate-400">
                       No shift assignments yet
                     </td>
                   </tr>
                 ) : (
-                  employeeShifts.map(es => {
-                    const emp = employees.find(e => e.id === es.employee_id);
-                    const shift = shifts.find(s => s.id === es.shift_id);
-                    return (
-                      <tr key={es.id} className="border-b border-slate-700 hover:bg-slate-700">
-                        <td className="px-4 py-3 text-sm text-slate-100 font-medium">{emp?.name}</td>
-                        <td className="px-4 py-3 text-sm text-slate-300">
-                          {shift?.name} ({shift?.start_time} - {shift?.end_time})
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-300">{es.assigned_date}</td>
-                        <td className="px-4 py-3 text-sm flex gap-2">
-                          <button
-                            onClick={() => handleDeleteEmployeeShift(es.id)}
-                            className="text-red-400 hover:text-red-300 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
+                  (() => {
+                    const groupedShifts = new Map<string, typeof employeeShifts>();
+                    employeeShifts.forEach(es => {
+                      const key = `${es.employee_id}-${es.shift_id}`;
+                      if (!groupedShifts.has(key)) {
+                        groupedShifts.set(key, []);
+                      }
+                      groupedShifts.get(key)!.push(es);
+                    });
+
+                    return Array.from(groupedShifts.entries()).map(([key, shifts]) => {
+                      const sortedShifts = [...shifts].sort((a, b) =>
+                        new Date(a.assigned_date).getTime() - new Date(b.assigned_date).getTime()
+                      );
+                      const firstShift = sortedShifts[0];
+                      const lastShift = sortedShifts[sortedShifts.length - 1];
+                      const emp = employees.find(e => e.id === firstShift.employee_id);
+                      const shift = shifts.find(s => s.id === firstShift.shift_id);
+
+                      return (
+                        <tr key={key} className="border-b border-slate-700 hover:bg-slate-700">
+                          <td className="px-4 py-3 text-sm text-slate-100 font-medium">{emp?.name}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">
+                            {shift?.name} ({shift?.start_time} - {shift?.end_time})
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{firstShift.assigned_date}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{lastShift.assigned_date}</td>
+                          <td className="px-4 py-3 text-sm flex gap-2">
+                            <button
+                              onClick={() => {
+                                if (confirm('Remove this entire shift assignment?')) {
+                                  sortedShifts.forEach(s => {
+                                    firebaseService.deleteEmployeeShift(s.id);
+                                  });
+                                  setEmployeeShifts(employeeShifts.filter(es => !sortedShifts.find(s => s.id === es.id)));
+                                }
+                              }}
+                              className="text-red-400 hover:text-red-300 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()
                 )}
               </tbody>
             </table>
