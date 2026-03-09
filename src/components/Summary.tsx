@@ -65,6 +65,7 @@ export default function Summary() {
   const [selectedEmployee, setSelectedEmployee] = useState('');
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [selectedShift, setSelectedShift] = useState('');
+  const [selectedEmploymentType, setSelectedEmploymentType] = useState('');
   const [dateFrom, setDateFrom] = useState(getToday());
   const [dateTo, setDateTo] = useState(getToday());
 
@@ -114,6 +115,11 @@ export default function Summary() {
 
     if (selectedShift) {
       filtered = filtered.filter(e => e.shift_id === selectedShift);
+    }
+
+    if (selectedEmploymentType) {
+      const employeesByType = employees.filter(e => e.employment_type === selectedEmploymentType).map(e => e.id);
+      filtered = filtered.filter(e => employeesByType.includes(e.employee_id));
     }
 
     return filtered;
@@ -189,50 +195,57 @@ export default function Summary() {
   const totalBreakMinutes = summary.reduce((sum, row) => sum + row.total_break_minutes, 0);
   const totalEntries = summary.reduce((sum, row) => sum + row.total_entries, 0);
 
-  const exportToGoogleSheets = () => {
-    const uniqueDates = getUniqueDates(summary.flatMap(row => row.dates));
+  const exportToGoogleSheets = async () => {
+    try {
+      const uniqueDates = getUniqueDates(summary.flatMap(row => row.dates));
 
-    const csvData = [
-      ['Sortation Plan - Time Tracking Summary Report'],
-      [`${dateFrom} to ${dateTo}`],
-      [],
-      ['Department / Task', 'Associates', 'Break Time (mins)', ...uniqueDates, 'Total Hours'],
-    ];
+      const csvData = [
+        ['Sortation Plan - Time Tracking Summary Report'],
+        [`${dateFrom} to ${dateTo}`],
+        [],
+        ['Department / Task', 'Associates', 'Break Time (mins)', ...uniqueDates, 'Total Hours'],
+      ];
 
-    let totalWorkHours = 0;
-    summary.forEach(row => {
-      const taskHours = getTotalHours(row.total_duration_minutes);
-      totalWorkHours += taskHours;
-      const breakHours = row.total_break_minutes;
+      let totalWorkHours = 0;
+      summary.forEach(row => {
+        const taskHours = getTotalHours(row.total_duration_minutes);
+        totalWorkHours += taskHours;
+        const breakHours = row.total_break_minutes;
 
-      csvData.push([
-        row.task_name,
-        row.employees.length.toString(),
-        breakHours.toString(),
-        ...uniqueDates.map(date => {
-          const dateEntries = row.dates.filter(d => d === date).length;
-          return dateEntries > 0 ? dateEntries.toString() : '';
-        }),
-        taskHours.toFixed(2),
-      ]);
-    });
+        csvData.push([
+          row.task_name,
+          row.employees.length.toString(),
+          breakHours.toString(),
+          ...uniqueDates.map(date => {
+            const dateEntries = row.dates.filter(d => d === date).length;
+            return dateEntries > 0 ? dateEntries.toString() : '';
+          }),
+          taskHours.toFixed(2),
+        ]);
+      });
 
-    csvData.push([]);
-    csvData.push(['TOTAL', '', totalBreakMinutes.toString(), '', '', totalWorkHours.toFixed(2)]);
+      csvData.push([]);
+      csvData.push(['TOTAL', '', totalBreakMinutes.toString(), '', '', totalWorkHours.toFixed(2)]);
 
-    const csv = csvData.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
-    const encodedUri = encodeURIComponent(csv);
+      const csv = csvData.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+      const encodedUri = encodeURIComponent(csv);
 
-    const link = document.createElement('a');
-    link.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodedUri);
-    link.setAttribute('download', `sortation-plan-${dateFrom}-to-${dateTo}.csv`);
-    link.click();
+      const link = document.createElement('a');
+      link.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodedUri);
+      link.setAttribute('download', `sortation-plan-${dateFrom}-to-${dateTo}.csv`);
+      link.click();
 
-    const sheetId = 'create';
-    const sheetUrl = `https://docs.google.com/spreadsheets/create`;
-    const importUrl = `https://docs.google.com/spreadsheets/import?url=${encodedUri}&importFormat=csv`;
+      const importUrl = `https://docs.google.com/spreadsheets/import?url=${encodedUri}&importFormat=csv`;
 
-    window.open(importUrl, '_blank');
+      window.open(importUrl, '_blank');
+
+      setTimeout(() => {
+        alert('Google Sheets export opened. Please sign in with your Google account to import the data. The file will be imported to your Google Drive.');
+      }, 500);
+    } catch (error) {
+      console.error('Error exporting to Google Sheets:', error);
+      alert('Failed to export to Google Sheets. Please try again.');
+    }
   };
 
   const exportToExcel = () => {
@@ -414,6 +427,22 @@ export default function Summary() {
               {shifts.map(shift => (
                 <option key={shift.id} value={shift.id}>
                   {shift.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">Employee Type</label>
+            <select
+              value={selectedEmploymentType}
+              onChange={e => setSelectedEmploymentType(e.target.value)}
+              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/50 transition-all"
+            >
+              <option value="">All Types</option>
+              {Array.from(new Set(employees.map(emp => emp.employment_type))).map(type => (
+                <option key={type} value={type}>
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
                 </option>
               ))}
             </select>
